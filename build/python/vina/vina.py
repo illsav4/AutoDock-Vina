@@ -206,6 +206,17 @@ class Vina:
 
         self._ligands = pdbqt_string
 
+    def set_no_ligand(self):
+        """Prepare a flexible-residues-only system (NO ligand) for score/optimize/dock.
+
+        Requires set_receptor(..., flex_pdbqt_filename=...) beforehand. The flexible
+        residue torsions become the only movable degrees of freedom (anchored: no
+        rigid-body motion), so optimize()/dock() relax/search the side chain in place
+        in the (loaded) affinity maps. Fork-only method (illsav4/AutoDock-Vina).
+        """
+        self._vina.set_no_ligand()
+        self._ligands = None
+
     def set_weights(self, weights):
         """Set potential weights for vina, vinardo or ad4 scoring function.
 
@@ -452,6 +463,18 @@ class Vina:
         # since the coordinates precision is 3.
         energies = np.around(self._vina.optimize(max_steps), decimals=3)
         return energies
+
+    def movable_coords(self):
+        """Current coordinates of the movable (flexible-residue / ligand) heavy atoms.
+
+        After optimize() the model is left at the optimized conformation, so this
+        returns the relaxed side-chain coordinates (optimize() does not populate the
+        pose container, so write_pose/poses do not apply). Fork-only method.
+
+        Returns:
+            numpy.ndarray: (n_movable_heavy_atoms, 3) coordinates.
+        """
+        return np.array(self._vina.get_movable_coords(), dtype=float)
 
     def dock(self, exhaustiveness=8, n_poses=20, min_rmsd=1.0, max_evals=0):
         """Docking: global search optimization.

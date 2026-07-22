@@ -74,6 +74,7 @@ public:
 		m_verbosity = verbosity;
 		m_receptor_initialized = false;
 		m_ligand_initialized = false;
+		m_flex_only = false;
 		m_map_initialized = false;
 		m_seed = generate_seed(seed);
 		m_no_refine = no_refine;
@@ -118,6 +119,9 @@ public:
 	void set_ligand_from_string(const std::vector<std::string> &ligand_string);
 	void set_ligand_from_file(const std::string& ligand_name);
 	void set_ligand_from_file(const std::vector<std::string>& ligand_name);
+	// Flex-only (no ligand) support: optimize/dock flexible receptor residues alone.
+	void set_no_ligand();
+	std::vector<std::vector<double> > get_movable_coords();
 	//void set_ligand(OpenBabel::OBMol* mol);
 	//void set_ligand(std::vector<OpenBabel::OBMol*> mol);
 	void set_vina_weights(double weight_gauss1=-0.035579, double weight_gauss2=-0.005156,
@@ -158,6 +162,7 @@ private:
 	//OpenBabel::OBMol m_mol;
 	bool m_receptor_initialized;
 	bool m_ligand_initialized;
+	bool m_flex_only;   // set by set_no_ligand(): flexible residues, no ligand
 	// scoring function
 	scoring_function_choice m_sf_choice;
 	flv m_weights;

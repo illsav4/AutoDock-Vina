@@ -87,6 +87,7 @@ void Vina::set_receptor(const std::string& rigid_name, const std::string& flex_n
 	m_receptor_initialized = true;
 	// If we are reading another receptor we should not consider the ligand and the map as initialized anymore
 	m_ligand_initialized = false;
+	m_flex_only = false;
 	m_map_initialized = false;
 }
 
@@ -133,6 +134,7 @@ void Vina::set_ligand_from_string(const std::string& ligand_string) {
 	m_poses = poses;
 	m_precalculated_byatom = precalculated_byatom;
 	m_ligand_initialized = true;
+	m_flex_only = false;
 }
 
 void Vina::set_ligand_from_string(const std::vector<std::string>& ligand_string) {
@@ -178,6 +180,7 @@ void Vina::set_ligand_from_string(const std::vector<std::string>& ligand_string)
 	m_poses = poses;
 	m_precalculated_byatom = precalculated_byatom;
 	m_ligand_initialized = true;
+	m_flex_only = false;
 }
 
 void Vina::set_ligand_from_file(const std::string& ligand_name) {
@@ -191,6 +194,68 @@ void Vina::set_ligand_from_file(const std::vector<std::string>& ligand_name) {
 		ligand_string.push_back(get_file_contents(ligand_name[i]));
 
 	set_ligand_from_string(ligand_string);
+}
+
+void Vina::set_no_ligand() {
+	// Prepare a system with flexible receptor residue(s) but NO ligand, so that
+	// score()/optimize()/global_search() operate purely on the flexible-residue
+	// torsions (anchored: residue_conf carries torsions only, no rigid-body DOF).
+	// Mirrors set_ligand_from_string()'s setup, minus appending a ligand.
+	// Requires set_receptor(..., flex) beforehand.
+	if (!m_receptor_initialized) {
+		throw vina_runtime_error("set_no_ligand() requires a receptor with flexible residues. Call set_receptor(flex) first.");
+	}
+
+	atom_type::t atom_typing = m_scoring_function->get_atom_typing();
+
+	// m_model already holds the rigid+flex receptor (set by set_receptor); its
+	// movable atoms / degrees of freedom are exactly the flexible-residue atoms.
+	m_model = m_receptor;
+
+	if (m_model.get_size().num_degrees_of_freedom() == 0) {
+		throw vina_runtime_error("set_no_ligand(): no movable degrees of freedom (no flexible residues / no rotatable bonds to optimize or dock).");
+	}
+
+	// Precalculate movable-atom (flex) interactions, exactly as for a ligand.
+	precalculate_byatom precalculated_byatom(*m_scoring_function, m_model);
+
+	// Check that all flex atom types are in the grid (if initialized).
+	if (m_map_initialized) {
+		szv atom_types = m_model.get_movable_atom_types(atom_typing);
+
+		if (m_sf_choice == SF_VINA || m_sf_choice == SF_VINARDO) {
+			if(!m_grid.are_atom_types_grid_initialized(atom_types))
+				exit(EXIT_FAILURE);
+		} else {
+			if(!m_ad4grid.are_atom_types_grid_initialized(atom_types))
+				exit(EXIT_FAILURE);
+		}
+	}
+
+	// Store in Vina object. Reuse m_ligand_initialized as "movable system ready"
+	// so score()/optimize()/global_search() proceed unchanged.
+	output_container poses;
+	m_poses = poses;
+	m_precalculated_byatom = precalculated_byatom;
+	m_ligand_initialized = true;
+	m_flex_only = true;
+}
+
+std::vector<std::vector<double> > Vina::get_movable_coords() {
+	// Current coordinates of the movable (flexible-residue / ligand) heavy atoms.
+	// After optimize(), m_model is left at the optimized conformation, so this
+	// returns the relaxed sidechain coordinates (m_poses is not populated by
+	// optimize(), unlike global_search()).
+	std::vector<std::vector<double> > out;
+	vecv coords = m_model.get_heavy_atom_movable_coords();
+	VINA_FOR_IN(i, coords) {
+		std::vector<double> xyz;
+		xyz.push_back(coords[i][0]);
+		xyz.push_back(coords[i][1]);
+		xyz.push_back(coords[i][2]);
+		out.push_back(xyz);
+	}
+	return out;
 }
 
 /*
@@ -737,6 +802,11 @@ std::vector<double> Vina::score(double intramolecular_energy) {
 		conf_independent = m_scoring_function->conf_independent(m_model, 0); // [3] we can pass e=0 because we do not modify the energy like in vina
 		// Total
 		total = inter + conf_independent; // (+ intra - intra)
+		// FLEX-ONLY (no ligand): the sidechain<->grid interaction (flex_grids) lives
+		// in `intra`, which AD4 normally treats as receptor reorganization and drops
+		// from the total. With no ligand that IS the quantity of interest, so add it
+		// back. Guarded by m_flex_only -> no effect on normal ligand(+flex) docking.
+		if (m_flex_only) total += intra;
 	}
 
 	energies.push_back(total);
