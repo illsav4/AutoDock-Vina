@@ -277,7 +277,7 @@ class CustomBuildExt(build_ext):
 
         # Source: https://stackoverflow.com/questions/9723793/undefined-reference-to-boostsystemsystem-category-when-compiling
         vina_compiler_options = [
-                               "-std=c++11",
+                               "-std=c++14",
                                "-Wno-long-long",
                                "-pedantic",
                                '-DBOOST_ERROR_CODE_HEADER_ONLY'
